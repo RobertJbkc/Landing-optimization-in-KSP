@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rocket_lander"
+version = "0.1.0"
+description = "Deep Reinforcement Learning for autonomous rocket landing in Kerbal Space Program (KSP)."
+requires-python = ">=3.12"
+
+authors = [
+    {name = "João Roberto B. K. Cruz"}
+]
+
+dependencies = [
+    "torch",
+    "numpy",
+    "matplotlib",
+    "krpc"
+]
+
+
+# Para módulos apenas de desenvolvedor, caso eu venh aa utilizar.
+# [project.optional-dependencies]
+# dev = [
+#     "pytest",
+#     "black",
+#     "ruff"
+# ]
+
+# Para normal, rodar: pip install -e
+# Para o extra de desenvolvedor, rodar: pip install -e ".[dev]"
