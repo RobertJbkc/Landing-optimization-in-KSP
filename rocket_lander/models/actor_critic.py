@@ -12,13 +12,13 @@ class ActorCriticNetwork(nn.Module):
     - Transformar a entrada em uma política e em um valor
     """
 
-    def __init__(self, input_dim: int, camadas_ocultas: list[int], camadas_cabeca: list[int], num_actions: int, ativacao: type[nn.Module] = nn.Tanh):
+    def __init__(self, input_dim: int, camadas_ocultas: list[int], camadas_cabecas: list[int], num_actions: int, ativacao: type[nn.Module] = nn.Tanh):
 
         super().__init__()
         
         self.backbone = self.build_mlp(input_dim=input_dim, camadas_ocultas=camadas_ocultas, ativacao=ativacao)
-        self.actor = self.build_mlp(input_dim=camadas_ocultas[-1], camadas_ocultas=camadas_cabeca, ativacao=ativacao)
-        self.critic = self.build_mlp(input_dim=camadas_ocultas[-1], camadas_ocultas=camadas_cabeca, ativacao=ativacao)
+        self.actor = self.build_mlp(input_dim=camadas_ocultas[-1], camadas_ocultas=camadas_cabecas, ativacao=ativacao)
+        self.critic = self.build_mlp(input_dim=camadas_ocultas[-1], camadas_ocultas=camadas_cabecas, ativacao=ativacao)
 
         self.log_std = nn.Parameter(torch.zeros(num_actions)) # A exponencial desse parâmetro é o sigma da distribuição. É um parâmetro treinável/que o modelo aprende.
 
