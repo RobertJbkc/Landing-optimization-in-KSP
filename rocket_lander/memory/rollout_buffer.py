@@ -27,7 +27,7 @@ class RolloutBuffer():
         }
 
     
-    def add(self, estado: torch.Tensor, acao: torch.Tensor, log_prob: torch.Tensor, valor: torch.Tensor, recompensa: float, done: bool):
+    def add(self, estado: torch.Tensor, acao: torch.Tensor, log_prob: torch.Tensor, valor: torch.Tensor, recompensa: float, done: int):
         """Adiciona observações no buffer de dados via append nas listas do dicionário.
 
         Args:
@@ -36,7 +36,7 @@ class RolloutBuffer():
             log_prob (torch.Tensor): Logaritmo da probabilidade de ação segundo a política.
             valor (torch.Tensor): Estimativa V(s) produzida pelo Critic.
             recompensa (float): Recompensa recibida após executar a ação.
-            done (bool): Incida início e término de um episódio.
+            done (int): Indica início e término de um episódio. "O episódio terminou (1) ou não (0) após essa ação?".
         """
 
         ### Pode ser vaálido criar uma etapa de normalização de entradas
