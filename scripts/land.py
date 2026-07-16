@@ -1,1 +1,1 @@
-from rocket_lander.environment import ksp_env
+from rocket_lander.environment import ksp_environment
