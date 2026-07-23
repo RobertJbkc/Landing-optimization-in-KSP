@@ -12,37 +12,51 @@ class ActorCriticNetwork(nn.Module):
     - Transformar a entrada em uma política e em um valor
     """
 
-    def __init__(self, input_dim: int, camadas_ocultas: list[int], camadas_cabecas: list[int], num_actions: int, ativacao: type[nn.Module] = nn.Tanh):
+    def __init__(self, input_dim: int, camadas_ocultas: list[int], output_dim: int, camadas_cabecas: list[int], num_actions: int, ativacao: type[nn.Module] = nn.Tanh, ativacao_saida: type[nn.Module] = nn.Sigmoid):
 
         super().__init__()
         
-        self.backbone = self.build_mlp(input_dim=input_dim, camadas_ocultas=camadas_ocultas, ativacao=ativacao)
-        self.actor = self.build_mlp(input_dim=camadas_ocultas[-1], camadas_ocultas=camadas_cabecas, ativacao=ativacao)
-        self.critic = self.build_mlp(input_dim=camadas_ocultas[-1], camadas_ocultas=camadas_cabecas, ativacao=ativacao)
+        self.backbone = self.build_mlp(input_dim=input_dim, camadas_ocultas=camadas_ocultas, output_dim=output_dim, ativacao=ativacao)
+
+        self.actor = self.build_mlp(input_dim=output_dim, camadas_ocultas=camadas_cabecas, output_dim=num_actions, ativacao=ativacao, ativacao_saida=ativacao_saida)
+        self.critic = self.build_mlp(input_dim=output_dim, camadas_ocultas=camadas_cabecas, output_dim=num_actions, ativacao=ativacao, ativacao_saida=ativacao_saida)
 
         self.log_std = nn.Parameter(torch.zeros(num_actions)) # A exponencial desse parâmetro é o sigma da distribuição. É um parâmetro treinável/que o modelo aprende.
 
+
     @staticmethod
-    def build_mlp(input_dim: int, camadas_ocultas: list[int], ativacao: type[nn.Module] = nn.Tanh):
-        """Constrói o backbone da rede neural dado um número de entradas e um número de camadas ocultas.
+    def build_mlp(input_dim: int, camadas_ocultas: list[int], output_dim: int, ativacao: type[nn.Module] = nn.Tanh, ativacao_saida: type[nn.Module] | None = None) -> nn.Sequential:
+        """Monta a arquitetura de uma rede neural tipo MLP dado um número de entradas, um conjunto de camadas ocultas, um número de saídas e uma função de ativação.
+        A mais, uma função de ativação pode ser defininda na saída de rede.
 
         Args:
-            input_dim (int): Número de dimenssões de entrada.
-            camadas_ocultas (list[int]): Lista com o número de neurônios em cada camada oculta.
-            ativacao (nn.Module, optional): A função de ativação. É aplicada na última camada do backbone. Defaults to nn.Tanh.
+            input_dim (int): O número de entradas da rede.
+            camadas_ocultas (list[int]): Uma lista representando, em cada índice, o número de neurônios na camada da camada oculta.
+            output_dim (int): O número de saídas da rede.
+            ativacao (type[nn.Module], optional): A função de ativação da rede. Defaults to nn.Tanh.
+            ativacao_saida (type[nn.Module] | None, optional): Uma função que pode ser aplicada na saída. Defaults to None.
 
         Returns:
-            nn.Sequential: O objeto de camadas da MLP
+            nn.Sequential: _description_
         """
 
-        dimensoes = [input_dim] + camadas_ocultas
-        camadas = []
+        arquitetura = []
 
-        for i in range(len(dimensoes) - 1):
-            camadas.append(nn.Linear(dimensoes[i], dimensoes[i+1]))
-            camadas.append(ativacao())
+        # ===== Priemira camada
+        arquitetura.append(nn.Linear(input_dim, camadas_ocultas[0]))
+        arquitetura.append(ativacao())
 
-        return nn.Sequential(*camadas)
+        # ===== Camadas ocultas
+        for i in range(1, len(camadas_ocultas)):
+            arquitetura.append(nn.Linear(camadas_ocultas[i - 1], camadas_ocultas[i]))
+            arquitetura.append(ativacao())
+
+        # ===== Camada de saída
+        arquitetura.append(nn.Linear(camadas_ocultas[-1], output_dim))
+        if ativacao_saida != None:
+            arquitetura.append(ativacao_saida())
+
+        return nn.Sequential(*arquitetura)
     
     def forward(self, estado: torch.Tensor):
         """Realiza a passagem do estado pela rede de duas cabeças (actor e critic).
