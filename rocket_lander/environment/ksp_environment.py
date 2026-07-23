@@ -18,20 +18,24 @@ class KSPEnvironment():
         self.flight = self.nave.flight(reference_frame=self.refframe) # "Sensores" da nave
 
         # constantes para o blanceameto da loss
-        self.w_altitude = 1
+        self.w_altitude = 1/100
         self.w_vertical_speed = 1
-        self.w_horizontal_speed = 1
-        self.w_fuel = 1
+        self.w_horizontal_speed = 0
+        self.w_fuel = 1/100
         self.bonus_pouso = 100
         self.penalidade_explosao = -100
 
-        self.nome_save = 'rocket_lander_start'
+        self.nome_save = 'Start'
 
 
     def reset(self):
         """Deve resetar o ambiente para o treino do modelo. Aplicar uma variacão aleatória."""
 
         self._reset_nave()
+        self.nave.auto_pilot.disengage()
+        self.control.sas = True
+        self.control.sas_mode = self.space_center.SASMode.retrograde
+
         return self._get_state()
 
     def step(self, action: torch.Tensor) -> tuple[torch.Tensor, float, bool]:
@@ -59,6 +63,11 @@ class KSPEnvironment():
         Returns:
             torch.Tensor: Um tensor representando o estado do sistema.
         """
+
+        # self.refframe = self.nave.surface_reference_frame # Referência espacial (sistema de coordenadas)
+        # self.flight = self.nave.flight(reference_frame=self.refframe) # "Sensores" da nave
+        self.flight = self.nave.flight(self.nave.orbit.body.reference_frame) # "Sensores" da nave
+        
 
         # Ler "sensores"
         altitude = self.flight.surface_altitude
@@ -146,6 +155,9 @@ class KSPEnvironment():
             bool: True caso o episódio tenha terminado.
         """
 
+        if self.w_vertical_speed == 0 and self.w_altitude == 0:
+            return True, True
+        
         if self.nave.situation == 'landed':
             return True, True
 

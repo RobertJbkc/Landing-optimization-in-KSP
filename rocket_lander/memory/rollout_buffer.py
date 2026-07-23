@@ -82,7 +82,7 @@ class RolloutBuffer():
             if len(lista) == 0: # Tenho certeza de que se uma tiver comprimento nulo, as outras também o terão. Retorna "{}" por padrão
                 return {}
             
-            if isinstance(lista[0], torch.Tensor):
+            if all(isinstance(i, torch.Tensor) for i in lista):
                 dicionario[chave] = torch.stack(lista)
 
             else:

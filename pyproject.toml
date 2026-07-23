@@ -16,7 +16,7 @@ dependencies = [
     "torch",
     "numpy",
     "matplotlib",
-    "krpc"
+    "krpc==0.5.4"
 ]
 
 

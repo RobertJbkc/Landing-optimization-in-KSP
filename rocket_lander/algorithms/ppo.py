@@ -7,9 +7,9 @@
 import torch
 import torch.nn as nn
 from torch.distributions import Normal # Amostragem da distribuição normal para o Actor
-from models.actor_critic import ActorCriticNetwork
-from memory.rollout_buffer import RolloutBuffer
-
+from rocket_lander.models.actor_critic import ActorCriticNetwork
+from rocket_lander.memory.rollout_buffer import RolloutBuffer
+import numpy as np
 
 
 
@@ -65,7 +65,8 @@ class PPO():
             else:
                 proximo_valor = valores[t+1]
 
-            mask = 1 - dones[t]
+            dones_f = dones.float() # Converter para float
+            mask = 1 - dones_f[t]
             delta = recompensas[t] + (self.gamma * mask * proximo_valor) - valores[t]
             gae = delta + (self.gamma * self.lambda_gae * mask * gae)
             vantagens[t] = gae
@@ -86,6 +87,8 @@ class PPO():
         dados = buffer.to_tensors()
         # Calcula vantagens e retornos
         vantagens, retornos = self.calcula_vantagens(recompensas=dados['recompensas'], valores=dados['valores'], dones=dados['dones'], proximo_valor=proximo_valor)
+        vantagens = vantagens.detach()
+        retornos = retornos.detach()
         # Normaliza as vantagens
         vantagens = (vantagens - vantagens.mean()) / (vantagens.std() + 1e-8) # Evitar divisão por zero
 
