@@ -21,7 +21,7 @@ class ActorCriticNetwork(nn.Module):
         self.actor = self.build_mlp(input_dim=output_dim, camadas_ocultas=camadas_cabecas, output_dim=num_actions, ativacao=ativacao, ativacao_saida=ativacao_saida)
         self.critic = self.build_mlp(input_dim=output_dim, camadas_ocultas=camadas_cabecas, output_dim=num_actions, ativacao=ativacao, ativacao_saida=None)
 
-        self.log_std = nn.Parameter(torch.zeros(num_actions)) # A exponencial desse parâmetro é o sigma da distribuição. É um parâmetro treinável/que o modelo aprende.
+        self.log_std = nn.Parameter(torch.tensor([-4.0])) # A exponencial desse parâmetro é o sigma da distribuição. É um parâmetro treinável/que o modelo aprende.
 
 
     @staticmethod
@@ -69,6 +69,7 @@ class ActorCriticNetwork(nn.Module):
         """
 
         features = self.backbone(estado)
+        print(f'### Features mean: {features.mean(dim=0)}, std: {features.std(dim=0)}')
         mu = self.actor(features)
         value = self.critic(features)
 
@@ -91,6 +92,7 @@ class ActorCriticNetwork(nn.Module):
         std = torch.exp(self.log_std) # Obtém o fator sigma da distribuição
         dist = Normal(mu, std)
         action = mu
+        print(f'Mu: {mu[0]}, Value: {value[0]}, log_std: {self.log_std.item()} std: {std[0]}')
         if treino: # Usa a amostragem apenas em treino
             action = dist.sample()
 

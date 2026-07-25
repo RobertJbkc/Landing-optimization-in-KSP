@@ -89,8 +89,9 @@ class PPO():
         vantagens, retornos = self.calcula_vantagens(recompensas=dados['recompensas'], valores=dados['valores'], dones=dados['dones'], proximo_valor=proximo_valor)
         vantagens = vantagens.detach()
         retornos = retornos.detach()
-        # # Normaliza as vantagens
-        # vantagens = (vantagens - vantagens.mean()) / (vantagens.std() + 1e-8) # Evitar divisão por zero
+        # # Normaliza as vantagens e retornos
+        vantagens = (vantagens - vantagens.mean()) / (vantagens.std() + 1e-8) # Evitar divisão por zero
+        retornos = (retornos - retornos.mean()) / (retornos.std() + 1e-8)
 
         for _ in range(self.epocas):
             indices = torch.randperm(buffer.size)
@@ -141,9 +142,11 @@ class PPO():
 
         ##### Loss do Actor
         razao_clipada = torch.clamp(razao, 1-self.epsilon_clip, 1+self.epsilon_clip)
-        actor_loss = torch.min(razao * vantagens, razao_clipada * vantagens).mean()
+        actor_loss = -torch.min(razao * vantagens, razao_clipada * vantagens).mean()
 
         ##### Loss do Critic
+        print(f'#####\nRetornos: mean: {retornos.mean()} - std: {retornos.std()}')
+        print(f'Valores: mean: {valores.mean()} - std: {valores.std()}\n#####')
         critic_loss = self.coef_valor * self.perda(valores, retornos)
 
         ##### Entropia - Favorecer a exploração (deve ser maximizada)

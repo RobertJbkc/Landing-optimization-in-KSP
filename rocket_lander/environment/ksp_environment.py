@@ -2,6 +2,8 @@ import krpc
 import torch
 from time import sleep
 
+from rocket_lander.memory.rollout_buffer import RolloutBuffer
+
 
 class KSPEnvironment():
 
@@ -22,8 +24,8 @@ class KSPEnvironment():
         self.w_vertical_speed = 1
         self.w_horizontal_speed = 0
         self.w_fuel = -1/100
-        self.bonus_pouso = 10
-        self.penalidade_explosao = -5
+        self.bonus_pouso = 100
+        self.penalidade_explosao = -100
 
         self.nome_save = 'Start'
 
@@ -38,7 +40,7 @@ class KSPEnvironment():
 
         return self._get_state()
 
-    def step(self, action: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, bool]:
+    def step(self, action: torch.Tensor, buffer: RolloutBuffer) -> tuple[torch.Tensor, torch.Tensor, bool]:
         """Dá um passo na simulacão. Como o simulador é um jogo, não há um passo de simulação, mas sim uma espera por um tempo que determina uma frequência de leietura.
 
         Args:
@@ -51,7 +53,8 @@ class KSPEnvironment():
         self._envia_acao(action=action)
         sleep(self.dt)
         novo_estado = self._get_state()
-        recompensa = torch.tensor(self._calc_recompensa(novo_estado))
+        print(f'ESTADO:: mean:{novo_estado.mean(dim=0)}, std: {novo_estado.std(dim=0)}')
+        recompensa = torch.tensor(self._calc_recompensa(novo_estado, buffer))
         done, _ = self._is_done()
 
         return novo_estado, recompensa, done
@@ -67,17 +70,20 @@ class KSPEnvironment():
         self.flight = self.nave.flight(self.nave.orbit.body.reference_frame) # "Sensores" da nave
         
         # Ler "sensores"
-        altitude = self.flight.surface_altitude # Ou surface
-        velocidade_vertical = self.flight.vertical_speed
-        massa = self.nave.mass
-        propelente = self.nave.resources.amount('LiquidFuel') # Supomos, pelo amor de Deus, que o pouso seja com um motor a combustível líquid
+        altitude = self.flight.surface_altitude / 1000 # Ou surface
+        velocidade_vertical = self.flight.vertical_speed / 100
+        massa = self.nave.mass / 100
+        propelente = self.nave.resources.amount('LiquidFuel') / 100 # Supomos, pelo amor de Deus, que o pouso seja com um motor a combustível líquid
 
         gravity = self.nave.orbit.body.surface_gravity  # m/s^2
         thrust = self.nave.thrust  # N (empuxo atual)
         weight = massa * gravity
         # Cálculo do TWR - Thrust to Weight Ratio
         twr = thrust / weight if weight > 0 else 0
-
+        twr /= 5 # thrust do TWR depende do throttle da política anterior, cria realimentação.
+        # Talvez trocar para available_thrust ou max_thrust
+        # O estado não tem a gravidade!!! Colocar ao invez do peso ou combustível
+        ## Explodir é gastar todo o combistível!...
         # Construir o estado
         estado = (
             altitude,
@@ -92,7 +98,7 @@ class KSPEnvironment():
         # Converter para tensor
         return torch.tensor(estado, dtype=torch.float32)
 
-    def _calc_recompensa(self, estado):
+    def _calc_recompensa(self, estado, buffer: RolloutBuffer):
         """Objetivos de aprendizado:
         - O foguete deve atingir o solo
         - A velocidade vertical deve ser a mais próxima de 0 possível
@@ -117,10 +123,10 @@ class KSPEnvironment():
         twr = thrust / weight if weight > 0 else 0
         
 
-        k = (altitude / 1000) + 0.01
+        k = (altitude / 100) + 0.01
         penalidade_movimento = -((((abs(velocidade[0]))/10)/k) + (((abs(velocidade[1]))/10)/k) + 10 * (((abs(velocidade[2]))/100)/k))
-
-        progresso = - 10 * (altitude - estado[0])
+        altura_passada = buffer.buffer['estados'][-1][0] if buffer.size > 0 else altitude
+        progresso = (1/10) * (altura_passada - estado[0])
 
         print(f'Rec:: Pen mov: {penalidade_movimento}, prog: {progresso}')
         recompensa = 0
@@ -155,6 +161,9 @@ class KSPEnvironment():
         velocidade_vertical = self.flight.vertical_speed
         if abs(velocidade_vertical) < 3 and altitude < 10:
             return True, True
+
+        if abs(velocidade_vertical) > 20 and altitude < 5:
+            return True, False
         
         if self.nave.situation == 'landed':
             return True, True
