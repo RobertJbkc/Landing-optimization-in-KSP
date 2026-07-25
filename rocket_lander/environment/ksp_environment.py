@@ -18,10 +18,10 @@ class KSPEnvironment():
         self.flight = self.nave.flight(reference_frame=self.refframe) # "Sensores" da nave
 
         # constantes para o blanceameto da loss
-        self.w_altitude = 1/100
+        self.w_altitude = 1
         self.w_vertical_speed = 1
         self.w_horizontal_speed = 0
-        self.w_fuel = 1/100
+        self.w_fuel = -1/10
         self.bonus_pouso = 100
         self.penalidade_explosao = -100
 
@@ -32,7 +32,7 @@ class KSPEnvironment():
         """Deve resetar o ambiente para o treino do modelo. Aplicar uma variacão aleatória."""
 
         self._reset_nave()
-        self.nave.auto_pilot.disengage()
+        # self.nave.auto_pilot.disengage()
         self.control.sas = True
         self.control.sas_mode = self.space_center.SASMode.retrograde
 
@@ -70,7 +70,7 @@ class KSPEnvironment():
         
 
         # Ler "sensores"
-        altitude = self.flight.surface_altitude
+        altitude = self.flight.bedrock_altitude # Ou surface
         velocidade_vertical = self.flight.vertical_speed
         velocidade_horizontal = self.flight.horizontal_speed
         massa = self.nave.mass
@@ -87,33 +87,6 @@ class KSPEnvironment():
 
         # Converter para tensor
         return torch.tensor(estado, dtype=torch.float32)
-        
-    # def _calc_recompensa(self):
-    #     """Objetivos de aprendizado:
-    #     - O foguete deve atingir o solo
-    #     - A velocidade vertical deve ser a mais próxima de 0 possível
-    #     - A velocidade horizontal deve ser próxima de zero tal qual a vertical (principalmente em um caso completo)
-    #     - Gastando o mínimo de combustível
-    #     - Sem EXPLODIR (penalizar esse caso)
-
-    #     Uma função será minimizada, esta é a função de perda. Ela deve ter duas partes: a contínua cuida dos eventos contínuos durante o voo e a discreta está relacionada a uma nota para o voo. Esta última podendo ser negativa.
-    #     """
-        
-    #     perda = 0
-    #     estado = self._get_state()
-    #     perda -= self.w_altitude * abs(estado[0])
-    #     perda -= self.w_vertical_speed * abs(estado[1])
-    #     perda -= self.w_horizontal_speed * abs(estado[2])
-    #     perda -= self.w_fuel * abs(estado[4])
-
-    #     situacao = self._is_done()
-    #     if situacao[0]: # Se pousou
-    #         if situacao[1]: # Se foi de uma bom modo
-    #             return self.bonus_pouso
-    #         else:
-    #             return self.penalidade_explosao
-        
-    #     return perda
 
     def _calc_recompensa(self, estado):
         """Objetivos de aprendizado:
@@ -128,16 +101,18 @@ class KSPEnvironment():
         
         perda = 0
         perda -= self.w_altitude * abs(estado[0])
-        perda -= self.w_vertical_speed * abs(estado[1])
+        # perda -= self.w_vertical_speed * abs(estado[1])
+        perda -= self.w_vertical_speed * estado[1] # Tem que ser assim
+        # Adicionar tratamento especial se subir
         perda -= self.w_horizontal_speed * abs(estado[2])
         perda -= self.w_fuel * abs(estado[4])
 
         situacao = self._is_done()
         if situacao[0]: # Se pousou
             if situacao[1]: # Se foi de uma bom modo
-                return self.bonus_pouso
+                return perda * self.bonus_pouso
             else:
-                return self.penalidade_explosao
+                return perda * self.penalidade_explosao
         
         return perda
 
@@ -154,8 +129,14 @@ class KSPEnvironment():
         Returns:
             bool: True caso o episódio tenha terminado.
         """
+        self.flight = self.nave.flight(self.nave.orbit.body.reference_frame) # "Sensores" da nave
+                
+        
+        # Ler "sensores"
+        altitude = self.flight.bedrock_altitude # Ou surface
+        velocidade_vertical = self.flight.vertical_speed
 
-        if self.w_vertical_speed == 0 and self.w_altitude == 0:
+        if velocidade_vertical < 1 and altitude < 5:
             return True, True
         
         if self.nave.situation == 'landed':

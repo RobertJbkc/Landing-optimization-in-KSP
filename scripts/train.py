@@ -23,12 +23,12 @@ from rocket_lander.algorithms.ppo import PPO
 
 NUM_EPISODIOS = 20
 FREQUENCIA_ATUALIZACAO = 30 # Hz
-NUM_PASSOS_ROLLOUT = 50 # Ponto pegos antes de uma atualização
+NUM_PASSOS_ROLLOUT = 100 # Ponto pegos antes de uma atualização
 
 
 ambiente = KSPEnvironment(frequencia=FREQUENCIA_ATUALIZACAO)
-rede = ActorCriticNetwork(input_dim=5, camadas_ocultas=[20, 20, 20], output_dim=5, camadas_cabecas=[20, 20], num_actions=1, ativacao=nn.Tanh, ativacao_saida=nn.Sigmoid)
-ppo = PPO(rede, lr=5e-3, gamma=0.99, lambda_gae=0.65, epsilon_clip=0.2, coef_entropia=0.1, coef_valor=0.01, epocas=20, batch_size=32)
+rede = ActorCriticNetwork(input_dim=5, camadas_ocultas=[20, 20], output_dim=5, camadas_cabecas=[20, 30, 20], num_actions=1, ativacao=nn.Tanh, ativacao_saida=nn.Sigmoid)
+ppo = PPO(rede, lr=5e-2, gamma=0.99, lambda_gae=0.65, epsilon_clip=0.2, coef_entropia=0.1, coef_valor=0.01, epocas=20, batch_size=32)
 buffer = RolloutBuffer()
 
 
@@ -41,8 +41,8 @@ for i in range(NUM_EPISODIOS):
 
     while not done:
         with torch.no_grad(): ####
-            acao, log_prob, valor, _ = ppo.rede.act(estado, treino=True)
-        print('Passos coletados: ', passos_coletados)
+            acao, log_prob, valor, _ = ppo.rede.act(estado, treino=False)
+        print('Ação: ', acao)
 
         proximo_estado, recompensa, done = ambiente.step(acao)
         print(f'[info] Recompença: {recompensa}, Done: {done}')

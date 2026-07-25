@@ -19,7 +19,7 @@ class ActorCriticNetwork(nn.Module):
         self.backbone = self.build_mlp(input_dim=input_dim, camadas_ocultas=camadas_ocultas, output_dim=output_dim, ativacao=ativacao)
 
         self.actor = self.build_mlp(input_dim=output_dim, camadas_ocultas=camadas_cabecas, output_dim=num_actions, ativacao=ativacao, ativacao_saida=ativacao_saida)
-        self.critic = self.build_mlp(input_dim=output_dim, camadas_ocultas=camadas_cabecas, output_dim=num_actions, ativacao=ativacao, ativacao_saida=ativacao_saida)
+        self.critic = self.build_mlp(input_dim=output_dim, camadas_ocultas=camadas_cabecas, output_dim=num_actions, ativacao=ativacao, ativacao_saida=None)
 
         self.log_std = nn.Parameter(torch.zeros(num_actions)) # A exponencial desse parâmetro é o sigma da distribuição. É um parâmetro treinável/que o modelo aprende.
 
@@ -87,10 +87,11 @@ class ActorCriticNetwork(nn.Module):
 
         ### Em tese a notação correta usa: act(self, estado: torch.Tensor, treino: bool = False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Para deixar bem documentado e escrito!!!!!
 
-        mu, value = self.forward(estado)
+        (mu), value = self.forward(estado)
         std = torch.exp(self.log_std) # Obtém o fator sigma da distribuição
         dist = Normal(mu, std)
         action = mu
+        print('Mu, Valor:', mu, value)
         if treino: # Usa a amostragem apenas em treino
             action = dist.sample()
 
