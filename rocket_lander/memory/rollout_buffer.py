@@ -10,13 +10,6 @@ class RolloutBuffer():
     """
 
     def __init__(self):
-        # self.estados = []
-        # self.acoes = []
-        # self.log_probs = []
-        # self.valores = []
-        # self.recompensas = []
-        # self.dones = []
-
         self.buffer = {
             'estados': [],
             'acoes': [],
@@ -27,7 +20,7 @@ class RolloutBuffer():
         }
 
     
-    def add(self, estado: torch.Tensor, acao: torch.Tensor, log_prob: torch.Tensor, valor: torch.Tensor, recompensa: float, done: int):
+    def add(self, estado: torch.Tensor, acao: torch.Tensor, log_prob: torch.Tensor, valor: torch.Tensor, recompensa: torch.Tensor, done: int):
         """Adiciona observações no buffer de dados via append nas listas do dicionário.
 
         Args:
@@ -38,26 +31,6 @@ class RolloutBuffer():
             recompensa (float): Recompensa recibida após executar a ação.
             done (int): Indica início e término de um episódio. "O episódio terminou (1) ou não (0) após essa ação?".
         """
-
-        ### Pode ser vaálido criar uma etapa de normalização de entradas
-        # O as_tensor já realiza a verificação se é ou não um tensor. O condicional não deve ser necessário.
-        # if not isinstance(recompensa, float):
-        #     recompensa = float(recompensa)
-
-        # if not isinstance(done, bool):
-        #     done = bool(done)
-
-        # if not isinstance(estado, torch.Tensor):
-        #     estado = torch.as_tensor(estado)
-
-        # if not isinstance(acao, torch.Tensor):
-        #     acao = torch.as_tensor(acao)
-
-        # if not isinstance(log_prob, torch.Tensor):
-        #     log_prob = torch.as_tensor(log_prob)
-
-        # if not isinstance(valor, torch.Tensor):
-        #     valor = torch.as_tensor(valor)
 
         vetor_composto = (estado, acao, log_prob, valor, recompensa, done)
         for chave, variavel in zip(self.buffer, vetor_composto):

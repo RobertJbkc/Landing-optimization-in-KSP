@@ -18,12 +18,12 @@ class KSPEnvironment():
         self.flight = self.nave.flight(reference_frame=self.refframe) # "Sensores" da nave
 
         # constantes para o blanceameto da loss
-        self.w_altitude = 1
+        self.w_altitude = 1/10
         self.w_vertical_speed = 1
         self.w_horizontal_speed = 0
-        self.w_fuel = -1/10
-        self.bonus_pouso = 100
-        self.penalidade_explosao = -100
+        self.w_fuel = -1/100
+        self.bonus_pouso = 10
+        self.penalidade_explosao = -5
 
         self.nome_save = 'Start'
 
@@ -38,7 +38,7 @@ class KSPEnvironment():
 
         return self._get_state()
 
-    def step(self, action: torch.Tensor) -> tuple[torch.Tensor, float, bool]:
+    def step(self, action: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, bool]:
         """Dá um passo na simulacão. Como o simulador é um jogo, não há um passo de simulação, mas sim uma espera por um tempo que determina uma frequência de leietura.
 
         Args:
@@ -51,7 +51,7 @@ class KSPEnvironment():
         self._envia_acao(action=action)
         sleep(self.dt)
         novo_estado = self._get_state()
-        recompensa = self._calc_recompensa(novo_estado)
+        recompensa = torch.tensor(self._calc_recompensa(novo_estado))
         done, _ = self._is_done()
 
         return novo_estado, recompensa, done
@@ -64,26 +64,30 @@ class KSPEnvironment():
             torch.Tensor: Um tensor representando o estado do sistema.
         """
 
-        # self.refframe = self.nave.surface_reference_frame # Referência espacial (sistema de coordenadas)
-        # self.flight = self.nave.flight(reference_frame=self.refframe) # "Sensores" da nave
         self.flight = self.nave.flight(self.nave.orbit.body.reference_frame) # "Sensores" da nave
         
-
         # Ler "sensores"
-        altitude = self.flight.bedrock_altitude # Ou surface
+        altitude = self.flight.surface_altitude # Ou surface
         velocidade_vertical = self.flight.vertical_speed
-        velocidade_horizontal = self.flight.horizontal_speed
         massa = self.nave.mass
-        propelente = self.nave.resources.amount('LiquidFuel') # Supomos, pelo amor de Deus, que o pouso seja com um motor a combustível líquido
+        propelente = self.nave.resources.amount('LiquidFuel') # Supomos, pelo amor de Deus, que o pouso seja com um motor a combustível líquid
+
+        gravity = self.nave.orbit.body.surface_gravity  # m/s^2
+        thrust = self.nave.thrust  # N (empuxo atual)
+        weight = massa * gravity
+        # Cálculo do TWR - Thrust to Weight Ratio
+        twr = thrust / weight if weight > 0 else 0
 
         # Construir o estado
         estado = (
             altitude,
             velocidade_vertical,
-            velocidade_horizontal,
             massa,
-            propelente
+            propelente,
+            twr
         )
+
+        print(f'Velocidade: {velocidade_vertical}, TWR: {twr}')
 
         # Converter para tensor
         return torch.tensor(estado, dtype=torch.float32)
@@ -98,23 +102,38 @@ class KSPEnvironment():
 
         Uma função será minimizada, esta é a função de perda. Ela deve ter duas partes: a contínua cuida dos eventos contínuos durante o voo e a discreta está relacionada a uma nota para o voo. Esta última podendo ser negativa.
         """
+
+        self.flight = self.nave.flight(self.nave.orbit.body.reference_frame) # "Sensores" da nave
+        # Ler "sensores"
+        altitude = self.flight.surface_altitude # Ou surface
+        velocidade_vertical = self.flight.vertical_speed
+        velocidade = self.flight.velocity
+        massa = self.nave.mass
+        propelente = self.nave.resources.amount('LiquidFuel') # Supomos, pelo amor de Deus, que o pouso seja com um motor a combustível líquido
+        gravity = self.nave.orbit.body.surface_gravity  # m/s^2
+        thrust = self.nave.thrust  # N (empuxo atual)
+        weight = massa * gravity
+        # Cálculo do TWR - Thrust to Weight Ratio
+        twr = thrust / weight if weight > 0 else 0
         
-        perda = 0
-        perda -= self.w_altitude * abs(estado[0])
-        # perda -= self.w_vertical_speed * abs(estado[1])
-        perda -= self.w_vertical_speed * estado[1] # Tem que ser assim
-        # Adicionar tratamento especial se subir
-        perda -= self.w_horizontal_speed * abs(estado[2])
-        perda -= self.w_fuel * abs(estado[4])
+
+        k = (altitude / 1000) + 0.01
+        penalidade_movimento = -((((abs(velocidade[0]))/10)/k) + (((abs(velocidade[1]))/10)/k) + 10 * (((abs(velocidade[2]))/100)/k))
+
+        progresso = - 10 * (altitude - estado[0])
+
+        print(f'Rec:: Pen mov: {penalidade_movimento}, prog: {progresso}')
+        recompensa = 0
+        recompensa += penalidade_movimento + progresso
 
         situacao = self._is_done()
         if situacao[0]: # Se pousou
             if situacao[1]: # Se foi de uma bom modo
-                return perda * self.bonus_pouso
+                return recompensa + self.bonus_pouso
             else:
-                return perda * self.penalidade_explosao
+                return recompensa + self.penalidade_explosao
         
-        return perda
+        return recompensa
 
     def _envia_acao(self, action: torch.Tensor):
         """Envia as ações para o jogo"""
@@ -129,14 +148,12 @@ class KSPEnvironment():
         Returns:
             bool: True caso o episódio tenha terminado.
         """
-        self.flight = self.nave.flight(self.nave.orbit.body.reference_frame) # "Sensores" da nave
-                
+        self.flight = self.nave.flight(self.nave.orbit.body.reference_frame) # "Sensores" da nave    
         
         # Ler "sensores"
-        altitude = self.flight.bedrock_altitude # Ou surface
+        altitude = self.flight.surface_altitude # Ou surface
         velocidade_vertical = self.flight.vertical_speed
-
-        if velocidade_vertical < 1 and altitude < 5:
+        if abs(velocidade_vertical) < 3 and altitude < 10:
             return True, True
         
         if self.nave.situation == 'landed':

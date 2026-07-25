@@ -89,7 +89,6 @@ class PPO():
         vantagens, retornos = self.calcula_vantagens(recompensas=dados['recompensas'], valores=dados['valores'], dones=dados['dones'], proximo_valor=proximo_valor)
         vantagens = vantagens.detach()
         retornos = retornos.detach()
-        print(f'Vantagens: {vantagens[:5]}, Retornos: {retornos[:5]}')
         # # Normaliza as vantagens
         # vantagens = (vantagens - vantagens.mean()) / (vantagens.std() + 1e-8) # Evitar divisão por zero
 
@@ -117,6 +116,7 @@ class PPO():
                 self.optimizer.step()
 
         # Limpar o buffer ao final de tudo
+        print('[AAAAA] Atualizou!!!!! #########################')
         buffer.clear()
 
     def calc_loss(self, estados: torch.Tensor, acoes: torch.Tensor, log_probs_antigos: torch.Tensor, vantagens: torch.Tensor, retornos: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -141,16 +141,16 @@ class PPO():
 
         ##### Loss do Actor
         razao_clipada = torch.clamp(razao, 1-self.epsilon_clip, 1+self.epsilon_clip)
-        actor_loss = -torch.min(razao * vantagens, razao_clipada * vantagens).mean()
+        actor_loss = torch.min(razao * vantagens, razao_clipada * vantagens).mean()
 
         ##### Loss do Critic
-        # critic_loss = self.coef_valor * self.perda(valores, retornos)
-        critic_loss = self.coef_valor * self.perda(retornos, valores)
+        critic_loss = self.coef_valor * self.perda(valores, retornos)
 
         ##### Entropia - Favorecer a exploração (deve ser maximizada)
         entropia_loss = - self.coef_entropia * dist.entropy().sum(dim=-1).mean()
 
         ##### Combinar
         loss = actor_loss + critic_loss + entropia_loss
+        print(f'Loss {loss}, Actor {actor_loss}, Critic {critic_loss}, Entrpy {entropia_loss}')
 
         return loss, actor_loss, critic_loss, entropia_loss

@@ -87,11 +87,10 @@ class ActorCriticNetwork(nn.Module):
 
         ### Em tese a notação correta usa: act(self, estado: torch.Tensor, treino: bool = False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Para deixar bem documentado e escrito!!!!!
 
-        (mu), value = self.forward(estado)
+        mu, value = self.forward(estado)
         std = torch.exp(self.log_std) # Obtém o fator sigma da distribuição
         dist = Normal(mu, std)
         action = mu
-        print('Mu, Valor:', mu, value)
         if treino: # Usa a amostragem apenas em treino
             action = dist.sample()
 
