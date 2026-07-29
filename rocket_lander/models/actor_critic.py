@@ -1,16 +1,16 @@
-from typing import Any
+"""
+Implemeta a estruturna necessária para criar uma rede neural do tipo MLP. O fim da implementação é construir uma rede neural de duas cabeças.
 
+Na rede de duas cabeças, o backbone tende a ser mais denso para realizar a grande maior parte do processamento de informação (estados).
+"""
+
+from typing import Any
 import torch
-import torch.nn as nn # Infraestrutura da rede
+import torch.nn as nn
 from torch.distributions import Normal # Amostragem da distribuição normal para o Actor
 
 
 class ActorCriticNetwork(nn.Module):
-    """Esta classe deve APENAS:
-    - Representar uma rede neural
-    - Receber um estado
-    - Transformar a entrada em uma política e em um valor
-    """
 
     def __init__(self, input_dim: int, camadas_ocultas: list[int], output_dim: int, camadas_cabecas: list[int], num_actions: int, ativacao: type[nn.Module] = nn.Tanh, ativacao_saida: type[nn.Module] = nn.Sigmoid):
 
@@ -21,7 +21,7 @@ class ActorCriticNetwork(nn.Module):
         self.actor = self.build_mlp(input_dim=output_dim, camadas_ocultas=camadas_cabecas, output_dim=num_actions, ativacao=ativacao, ativacao_saida=ativacao_saida)
         self.critic = self.build_mlp(input_dim=output_dim, camadas_ocultas=camadas_cabecas, output_dim=num_actions, ativacao=ativacao, ativacao_saida=None)
 
-        self.log_std = nn.Parameter(torch.tensor([-4.0])) # A exponencial desse parâmetro é o sigma da distribuição. É um parâmetro treinável/que o modelo aprende.
+        self.log_std = nn.Parameter(torch.tensor([-3.2])) # A exponencial desse parâmetro é o sigma da distribuição. É um parâmetro treinável/que o modelo aprende.
 
 
     @staticmethod
@@ -37,7 +37,7 @@ class ActorCriticNetwork(nn.Module):
             ativacao_saida (type[nn.Module] | None, optional): Uma função que pode ser aplicada na saída. Defaults to None.
 
         Returns:
-            nn.Sequential: _description_
+            nn.Sequential: A rede neural.
         """
 
         arquitetura = []
@@ -59,24 +59,24 @@ class ActorCriticNetwork(nn.Module):
         return nn.Sequential(*arquitetura)
     
     def forward(self, estado: torch.Tensor):
-        """Realiza a passagem do estado pela rede de duas cabeças (actor e critic).
+        """Realiza a passagem do estado pela rede de duas cabeças (Cctor e Critic).
 
         Args:
-            estado (torch.Tensor): O estado do sistema real, do ambiente
+            estado (torch.Tensor): O estado do sistema real, do ambiente.
 
         Returns:
-            tuple: A saída de cada uam das cabeças
+            tuple: A saída de cada ums das cabeças
         """
 
         features = self.backbone(estado)
-        print(f'### Features mean: {features.mean(dim=0)}, std: {features.std(dim=0)}')
+
         mu = self.actor(features)
         value = self.critic(features)
 
         return mu, value
 
     def act(self, estado: torch.Tensor, treino: bool = False):
-        """Gera a decisão. Age. Toma a decisão com base na saída da rede. Se em treino, usa o sampling da distribuição.
+        """Gera a decisão. Age. Toma a decisão com base na saída da rede. Se em treino, usa o sampling da distribuição, que, se calibrado, leva a uma boa exploração.
 
         Args:
             estado (torch.Tensor): O estado verificado no ambiente

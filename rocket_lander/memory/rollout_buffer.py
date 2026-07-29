@@ -1,13 +1,12 @@
+"""
+Implementa um armazenador de dado que trabalha com retornos em forma de tensores.
+Faz a coleta e aramzenamento dos dados observados.
+"""
+
 import torch
 
 
 class RolloutBuffer():
-    """
-    Esta classe deve, APENAS:
-    - Armazenar transições
-    - Limpar o buffer
-    - Devolver os dados em forma de tensor
-    """
 
     def __init__(self):
         self.buffer = {
@@ -26,8 +25,8 @@ class RolloutBuffer():
         Args:
             estado (torch.Tensor): Tensor que representa o estado observado.
             acao (torch.Tensor): Tensor contendo a ação executada.
-            log_prob (torch.Tensor): Logaritmo da probabilidade de ação segundo a política.
-            valor (torch.Tensor): Estimativa V(s) produzida pelo Critic.
+            log_prob (torch.Tensor): Logaritmo da probabilidade de ação segundo a política vigente.
+            valor (torch.Tensor): Estimativa do retorno (valor) V(s) produzida pelo Critic.
             recompensa (float): Recompensa recibida após executar a ação.
             done (int): Indica início e término de um episódio. "O episódio terminou (1) ou não (0) após essa ação?".
         """

@@ -7,34 +7,26 @@ from rocket_lander.memory.rollout_buffer import RolloutBuffer
 
 class KSPEnvironment():
 
-    def __init__(self, frequencia: float):
+    def __init__(self, frequencia: float) -> None:
 
         self.dt = 1 / frequencia
 
         self.conn = krpc.connect('Rocket Lander') # Comunicação com o KSP
         self.space_center = self.conn.space_center # Interface principal do Jogo
-        self.nave = self.space_center.active_vessel # type: ignore # Nave que se controla
+        self.nave = self.space_center.active_vessel # Nave que está sendo controlada
         self.control = self.nave.control # Comandos relativos à nave
-
-        self.refframe = self.nave.surface_reference_frame # Referência espacial (sistema de coordenadas)
-        self.flight = self.nave.flight(reference_frame=self.refframe) # "Sensores" da nave
-
-        # constantes para o blanceameto da loss
-        self.w_altitude = 1/10
-        self.w_vertical_speed = 1
-        self.w_horizontal_speed = 0
-        self.w_fuel = -1/100
-        self.bonus_pouso = 100
-        self.penalidade_explosao = -100
+        self.flight = self.nave.flight(self.nave.orbit.body.reference_frame) # Sensores da nave
 
         self.nome_save = 'Start'
 
+        self.inicio = True
 
-    def reset(self):
-        """Deve resetar o ambiente para o treino do modelo. Aplicar uma variacão aleatória."""
+
+    def reset(self) -> torch.Tensor:
+        """Restaura o ambiente a uma situação original padronizada. Fururamente pode aplicar pequnas variações para generalizar o treinamento"""
 
         self._reset_nave()
-        # self.nave.auto_pilot.disengage()
+        self.inicio = True # Permite atualizar as variáveis de início
         self.control.sas = True
         self.control.sas_mode = self.space_center.SASMode.retrograde
 
@@ -53,7 +45,6 @@ class KSPEnvironment():
         self._envia_acao(action=action)
         sleep(self.dt)
         novo_estado = self._get_state()
-        print(f'ESTADO:: mean:{novo_estado.mean(dim=0)}, std: {novo_estado.std(dim=0)}')
         recompensa = torch.tensor(self._calc_recompensa(novo_estado, buffer))
         done, _ = self._is_done()
 
@@ -61,91 +52,131 @@ class KSPEnvironment():
 
 
     def _get_state(self) -> torch.Tensor:
-        """Lê o estado atual da nave a converte para um tensor.
+        """Lê o estado atual da nave e o converte para um tensor. O estado engloba ambiente e "sensores" da nave.
+
+        Aplica uma normalização baseada no valor máximo de cada atributo.
 
         Returns:
             torch.Tensor: Um tensor representando o estado do sistema.
         """
 
         self.flight = self.nave.flight(self.nave.orbit.body.reference_frame) # "Sensores" da nave
-        
-        # Ler "sensores"
-        altitude = self.flight.surface_altitude / 1000 # Ou surface
-        velocidade_vertical = self.flight.vertical_speed / 100
-        massa = self.nave.mass / 100
-        propelente = self.nave.resources.amount('LiquidFuel') / 100 # Supomos, pelo amor de Deus, que o pouso seja com um motor a combustível líquid
+        if self.inicio:
+            self.altitude_i = self.flight.surface_altitude
+            self.velocidade_vertical_i = abs(self.flight.vertical_speed)
+            self.velocidade_horizontal_i = abs(self.flight.horizontal_speed)
+            self.velocidade_i = [abs(i) for i in self.flight.velocity]
+            self.propelente_i = self.nave.resources.amount('LiquidFuel')
+            self.gravidade_i = abs(self.nave.orbit.body.surface_gravity)
+            self.massa_i = self.nave.mass
+            self.thrust_i = self.nave.max_thrust # Ou max?
+            self.weight_i = self.massa_i * self.gravidade_i
+            # Cálculo do TWR - Thrust to Weight Ratio
+            self.twr_i = self.thrust_i / self.weight_i if self.weight_i > 0 else 0
+            # Talvez trocar para available_thrust ou max_thrust
+            ## Explodir é gastar todo o combistível!...
+            
+            self.inicio = False # Faz com que os valores iniciais seja guardados
 
-        gravity = self.nave.orbit.body.surface_gravity  # m/s^2
-        thrust = self.nave.thrust  # N (empuxo atual)
-        weight = massa * gravity
+        # ===== Os volores abaixo estão normalizados pelo valor inicial
+        altitude = self.flight.surface_altitude / self.altitude_i
+        velocidade_vertical = self.flight.vertical_speed / self.velocidade_vertical_i
+        velocidade_horizontal = self.flight.horizontal_speed / self.velocidade_horizontal_i
+        propelente = self.nave.resources.amount('LiquidFuel') / self.propelente_i
+        gravidade = self.nave.orbit.body.surface_gravity / self.gravidade_i
+        massa = self.nave.mass / self.massa_i
+        thrust = self.nave.max_thrust / self.thrust_i # N (empuxoatual)
+        print(f'Thrust av: {thrust}')
+        weight = (massa * gravidade) / self.weight_i
         # Cálculo do TWR - Thrust to Weight Ratio
-        twr = thrust / weight if weight > 0 else 0
-        twr /= 5 # thrust do TWR depende do throttle da política anterior, cria realimentação.
-        # Talvez trocar para available_thrust ou max_thrust
-        # O estado não tem a gravidade!!! Colocar ao invez do peso ou combustível
-        ## Explodir é gastar todo o combistível!...
-        # Construir o estado
+        twr_av = (thrust / weight) / self.twr_i if weight > 0 else 0
+
         estado = (
             altitude,
             velocidade_vertical,
-            massa,
+            velocidade_horizontal,
             propelente,
-            twr
+            gravidade,
+            twr_av
         )
 
-        print(f'Velocidade: {velocidade_vertical}, TWR: {twr}')
-
-        # Converter para tensor
         return torch.tensor(estado, dtype=torch.float32)
 
     def _calc_recompensa(self, estado, buffer: RolloutBuffer):
-        """Objetivos de aprendizado:
+        """Definie como é calculada a recompensa. Faz com que os seguintes obeetivos sejam priorizados:
         - O foguete deve atingir o solo
         - A velocidade vertical deve ser a mais próxima de 0 possível
-        - A velocidade horizontal deve ser próxima de zero tal qual a vertical (principalmente em um caso completo)
-        - Gastando o mínimo de combustível
-        - Sem EXPLODIR (penalizar esse caso)
+        - Sem EXPLODIR (penalizar esse caso). Acabar o combustível antes do pouso é o mesmo que EXPLODIR
+        - Gastar o mínimo de combustível
 
-        Uma função será minimizada, esta é a função de perda. Ela deve ter duas partes: a contínua cuida dos eventos contínuos durante o voo e a discreta está relacionada a uma nota para o voo. Esta última podendo ser negativa.
+        O agente deve andar na direção de aumentar (maximizar) a recompensa.
         """
 
-        self.flight = self.nave.flight(self.nave.orbit.body.reference_frame) # "Sensores" da nave
-        # Ler "sensores"
-        altitude = self.flight.surface_altitude # Ou surface
-        velocidade_vertical = self.flight.vertical_speed
-        velocidade = self.flight.velocity
+        self.flight = self.nave.flight(self.nave.orbit.body.reference_frame)
+        altitude = self.flight.surface_altitude
+        velocidade = self.flight.velocity # Um vetor
         massa = self.nave.mass
-        propelente = self.nave.resources.amount('LiquidFuel') # Supomos, pelo amor de Deus, que o pouso seja com um motor a combustível líquido
-        gravity = self.nave.orbit.body.surface_gravity  # m/s^2
-        thrust = self.nave.thrust  # N (empuxo atual)
+        gravity = self.nave.orbit.body.surface_gravity
+        thrust = self.nave.thrust
         weight = massa * gravity
         # Cálculo do TWR - Thrust to Weight Ratio
         twr = thrust / weight if weight > 0 else 0
+
+        # Para mostrar como é o estado:
+        # estado[0] = altitude
+        # estado[1] = velocidade_vertical
+        # estado[2] = velocidade_horizontal
+        # estado[3] = propelente
+        # estado[4] = gravidade
+        # estado[5] = twr
         
 
-        k = (altitude / 100) + 0.01
-        penalidade_movimento = -((((abs(velocidade[0]))/10)/k) + (((abs(velocidade[1]))/10)/k) + 10 * (((abs(velocidade[2]))/100)/k))
-        altura_passada = buffer.buffer['estados'][-1][0] if buffer.size > 0 else altitude
-        progresso = (1/10) * (altura_passada - estado[0])
+        # k = (estado[0]) + 0.01
+        # vx = abs(velocidade[0]) / self.velocidade_i[0]
+        # vy = abs(velocidade[1]) / self.velocidade_i[1]
+        # vz = abs(velocidade[2]) / self.velocidade_i[2]
 
-        print(f'Rec:: Pen mov: {penalidade_movimento}, prog: {progresso}')
+        # penalidade_movimento = - (1/100) * ((vx / k) + (vy / k) + (vz / k))
+
+        # penalidade_movimento_2 = - 1 * abs(estado[2]) - 1 * abs(estado[1])
+
+        # altura_passada = buffer.buffer['estados'][0][-1] if buffer.size > 0 else altitude # Ou -1 0
+        # progresso = (1/10) * (altura_passada - estado[0])
+
+
+        # print(f'Rec:: Pen mov: {penalidade_movimento}, Pen mov 2: {penalidade_movimento_2}, prog: {progresso}')
+        # recompensa = 0
+        # recompensa += penalidade_movimento + penalidade_movimento + progresso
+
+
+        w1, w2, w3 = 1, 2, 0.4
+        altura_passada = buffer.buffer['estados'][-1][0] if buffer.size > 0 else altitude / self.altitude_i # Ou -1 0
+        penalidade_movimento = - w1 * abs(estado[2]) - w2 * abs(estado[1]) + w3 * (altura_passada - estado[0])
+
+        print(f'BufBuf: {buffer.buffer['estados'][-1][0] if buffer.size > 0 else altitude / self.altitude_i}, Est2: {estado[2]}, Est1: {estado[1]}')
+
         recompensa = 0
-        recompensa += penalidade_movimento + progresso
+        recompensa += penalidade_movimento
 
+
+
+        self.bonus_pouso = 20
+        self.penalidade = -20
+
+        # Com o método de recompensas variáveis devo verificar se foi combustível ou não
         situacao = self._is_done()
-        if situacao[0]: # Se pousou
-            if situacao[1]: # Se foi de uma bom modo
-                return recompensa + self.bonus_pouso
+        if situacao[0]:
+            if situacao[1]:
+                recompensa += self.bonus_pouso
             else:
-                return recompensa + self.penalidade_explosao
-        
+                recompensa += self.penalidade * (abs(estado[1]))
+                print(f'Penalidade: {self.penalidade * (abs(estado[1]))}')
+
         return recompensa
 
-    def _envia_acao(self, action: torch.Tensor):
+    def _envia_acao(self, action: torch.Tensor) -> None:
         """Envia as ações para o jogo"""
 
-        ### O método de construir a MLP deve ser alterado para que a camada de saída seja definida com uma possível funcão diferente.
-        # Quem deve garantir que o throttle pertence ao intervalo [0, 1] é a rede neural com uma finalização sigmoide
         self.control.throttle = float(action[0])
 
     def _is_done(self) -> tuple[bool, bool]:
@@ -154,11 +185,11 @@ class KSPEnvironment():
         Returns:
             bool: True caso o episódio tenha terminado.
         """
+
         self.flight = self.nave.flight(self.nave.orbit.body.reference_frame) # "Sensores" da nave    
-        
-        # Ler "sensores"
-        altitude = self.flight.surface_altitude # Ou surface
+        altitude = self.flight.surface_altitude
         velocidade_vertical = self.flight.vertical_speed
+
         if abs(velocidade_vertical) < 3 and altitude < 10:
             return True, True
 
@@ -174,16 +205,15 @@ class KSPEnvironment():
         if self.nave.resources.amount('LiquidFuel') <= 0:
             return True, False
 
-        return False, False # O segundo não deve ser usado. É um preenchimento.
+        return False, False
 
-    def _reset_nave(self):
-        """Reseta a posição e condições originais da nave. Será implementada uma variação aleatória nosparâmetros. A base de funiconamento é o load de um save com a nave em posição. """
-        self.space_center.load(self.nome_save) # type: ignore
+    def _reset_nave(self) -> None:
+        """Reseta a posição e condições originais da nave. A base de funiconamento é o load de um save com a nave em posição. """
+
+        self.space_center.load(self.nome_save)
 
         # Copiados para garantir que a referências estão corretas após o load do save.
         self.space_center = self.conn.space_center # Interface principal do Jogo
         self.nave = self.space_center.active_vessel # type: ignore # Nave que se controla
         self.control = self.nave.control # Comandos relativos à nave
-
-        self.refframe = self.nave.surface_reference_frame # Referência espacial (sistema de coordenadas)
-        self.flight = self.nave.flight(reference_frame=self.refframe) # "Sensores" da nave
+        self.flight = self.nave.flight(self.nave.orbit.body.reference_frame) # Sensores da nave
