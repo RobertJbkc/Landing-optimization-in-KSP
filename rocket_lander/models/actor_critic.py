@@ -92,7 +92,11 @@ class ActorCriticNetwork(nn.Module):
         std = torch.exp(self.log_std) # Obtém o fator sigma da distribuição
         dist = Normal(mu, std)
         action = mu
-        print(f'Mu: {mu[0]}, Value: {value[0]}, log_std: {self.log_std.item()} std: {std[0]}')
+        # print('Loging de ações tomadas')
+        # print(mu.mean(), mu.std())
+        # print(torch.exp(self.log_std).item())
+        # print(action.mean(), action.std())
+        print(f'Mu: {mu[0]:.3f}, Value: {value[0]:.3f}, log_std: {self.log_std.item():.3f} std: {std[0]:.3f}')
         if treino: # Usa a amostragem apenas em treino
             action = dist.sample()
 

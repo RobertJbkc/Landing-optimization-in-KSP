@@ -70,9 +70,9 @@ class KSPEnvironment():
             self.gravidade_i = abs(self.nave.orbit.body.surface_gravity)
             self.massa_i = self.nave.mass
             self.thrust_i = self.nave.max_thrust # Ou max?
-            self.weight_i = self.massa_i * self.gravidade_i
+            self.weight_i = self.nave.mass * abs(self.nave.orbit.body.surface_gravity)
             # Cálculo do TWR - Thrust to Weight Ratio
-            self.twr_i = self.thrust_i / self.weight_i if self.weight_i > 0 else 0
+            self.twr_i = self.nave.max_thrust / (self.nave.mass * abs(self.nave.orbit.body.surface_gravity)) if self.nave.mass > 0 else 0
             # Talvez trocar para available_thrust ou max_thrust
             ## Explodir é gastar todo o combistível!...
             
@@ -83,13 +83,10 @@ class KSPEnvironment():
         velocidade_vertical = self.flight.vertical_speed / self.velocidade_vertical_i
         velocidade_horizontal = self.flight.horizontal_speed / self.velocidade_horizontal_i
         propelente = self.nave.resources.amount('LiquidFuel') / self.propelente_i
-        gravidade = self.nave.orbit.body.surface_gravity / self.gravidade_i
-        massa = self.nave.mass / self.massa_i
-        thrust = self.nave.max_thrust / self.thrust_i # N (empuxoatual)
-        print(f'Thrust av: {thrust}')
-        weight = (massa * gravidade) / self.weight_i
+        gravidade = abs(self.nave.orbit.body.surface_gravity) / self.gravidade_i
         # Cálculo do TWR - Thrust to Weight Ratio
-        twr_av = (thrust / weight) / self.twr_i if weight > 0 else 0
+        massa_twr = self.nave.mass
+        twr_max = (self.nave.max_thrust / (massa_twr * abs(self.nave.orbit.body.surface_gravity))) / self.twr_i if massa_twr > 0 else 0
 
         estado = (
             altitude,
@@ -97,8 +94,10 @@ class KSPEnvironment():
             velocidade_horizontal,
             propelente,
             gravidade,
-            twr_av
+            twr_max
         )
+
+        # print('Estado antes de tensor:', estado)
 
         return torch.tensor(estado, dtype=torch.float32)
 
@@ -149,11 +148,11 @@ class KSPEnvironment():
         # recompensa += penalidade_movimento + penalidade_movimento + progresso
 
 
-        w1, w2, w3 = 1, 2, 0.4
+        w1, w2, w3 = 1, 3, 0.4
         altura_passada = buffer.buffer['estados'][-1][0] if buffer.size > 0 else altitude / self.altitude_i # Ou -1 0
         penalidade_movimento = - w1 * abs(estado[2]) - w2 * abs(estado[1]) + w3 * (altura_passada - estado[0])
 
-        print(f'BufBuf: {buffer.buffer['estados'][-1][0] if buffer.size > 0 else altitude / self.altitude_i}, Est2: {estado[2]}, Est1: {estado[1]}')
+        # print(f'BufBuf: {buffer.buffer['estados'][-1][0] if buffer.size > 0 else altitude / self.altitude_i}, Est2: {estado[2]}, Est1: {estado[1]}')
 
         recompensa = 0
         recompensa += penalidade_movimento
