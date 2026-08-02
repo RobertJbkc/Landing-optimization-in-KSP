@@ -1,17 +1,14 @@
-# Este arquivo é o grande maestro que integra dotos os outros scripts
-# Deve:
-# - Criar o ambiente
-# - Criar a rede
-# - Criar o PPO
-# - Coletar experiências
-# - Atualizar
-# - Salvar o modelo
+"""
+Arquivo destinado a conduzir o treinamento do agente de DRL via PPO. A PPO funciona em episódios.
+"""
 
-# PPO funciona em episódios. Até este terminar temos:
-# - Observação de um estado
-# - Actor escolhe uma ação
-# - Ambiente executa --> retorna próximo estado, recompensa e done --> salva no buffer
-# - Atualizar o PPO
+
+
+# ##### Recompensa do episódio: -310.930
+# Todas as recompensas: [(-1656.970615386963, 865), (-2073.1646118164062, 715), (-2083.4071617126465, 690), (-2114.2611961364746, 616), (-2218.0948333740234, 653), (-2377.5377464294434, 773), (-1852.3420677185059, 618), (-1684.6448097229004, 550)]
+# Recompensa por passo: [-1.915572965765275, -2.8995309256173516, -3.019430669148763, -3.432242201520251, -3.3967761613691017, -3.0757280031428764, -2.99731726168043, -3.062990563132546]
+
+
 
 import torch
 import torch.nn as nn
@@ -21,45 +18,63 @@ from rocket_lander.memory.rollout_buffer import RolloutBuffer
 from rocket_lander.algorithms.ppo import PPO
 
 
-NUM_EPISODIOS = 20
-FREQUENCIA_ATUALIZACAO = 30 # Hz
-NUM_PASSOS_ROLLOUT = 100 # Ponto pegos antes de uma atualização
-
+NUM_EPISODIOS = 70
+FREQUENCIA_ATUALIZACAO = 10 # Hz Menor frequência torna os dados mais distinguíveis, o que é bom. < 15 Hz
+NUM_PASSOS_ROLLOUT = 64 # ou 128 # Ponto pegos antes de uma atualização
 
 ambiente = KSPEnvironment(frequencia=FREQUENCIA_ATUALIZACAO)
-rede = ActorCriticNetwork(input_dim=5, camadas_ocultas=[20, 20], output_dim=5, camadas_cabecas=[20, 30, 20], num_actions=1, ativacao=nn.Tanh, ativacao_saida=nn.Sigmoid)
-ppo = PPO(rede, lr=5e-2, gamma=0.99, lambda_gae=0.65, epsilon_clip=0.2, coef_entropia=0.1, coef_valor=0.01, epocas=20, batch_size=32)
+rede = ActorCriticNetwork(input_dim=7, camadas_ocultas=[32, 64, 128, 64, 32], output_dim=16, camadas_cabecas=[16, 32, 16, 8], num_actions=1, ativacao=nn.Tanh, ativacao_saida=nn.Tanh)
+ppo = PPO(rede, lr=[1e-4, 1e-3, 1e-3], gamma=0.99, lambda_gae=0.90, epsilon_clip=0.7, coef_entropia=0.10, coef_valor=1, epocas=25, batch_size=16)
 buffer = RolloutBuffer()
 
+recompensa_para_analise = []
+recompensa_por_passo = []
 
 print('[PC] Iniciado...')
 passos_coletados = 0
+passos_totais = 0
 for i in range(NUM_EPISODIOS):
-    estado = ambiente.reset() # Controla, via KRPC, o reset de tudo no jogo, assim como o novo posicionaento no mundo
+    estado = ambiente.reset()
     done = False
     print('[PC] Reset aplicado com sucesso!')
 
     while not done:
-        with torch.no_grad(): ####
-            acao, log_prob, valor, _ = ppo.rede.act(estado, treino=False)
-        print('Ação: ', acao)
+        with torch.no_grad():
+            acao, log_prob, valor, _ = ppo.rede.act(estado, treino=True)
 
-        proximo_estado, recompensa, done = ambiente.step(acao)
-        print(f'[info] Recompença: {recompensa}, Done: {done}')
+        proximo_estado, recompensa, done = ambiente.step(acao, buffer=buffer)
+        print(f'[info] Recompença: {recompensa:.3f}, Ação: {acao.item():.3f}')
 
         buffer.add(estado=estado, acao=acao, log_prob=log_prob, valor=valor, recompensa=recompensa, done=done)
-        estado = proximo_estado # Fim do loop
+        estado = proximo_estado
         passos_coletados += 1
+        passos_totais += 1
 
         if passos_coletados >= NUM_PASSOS_ROLLOUT:
             if done:
                 proximo_valor = torch.zeros_like(valor)
             else:
                 _, proximo_valor = ppo.rede(estado) # Obter a previsão do Critic
+            ambiente.conn.krpc.paused = True # Pausa o jogo para atualizar as rede. Permite redes maiores
             ppo.atualizar(buffer, proximo_valor)
-            print('[AAAAA] Atualizou!!!!!')
+            ambiente.conn.krpc.paused = False
             passos_coletados = 0
+        print('Episódio:', i)
 
-    if buffer.size > 0: # Caso não atinja o número de passos de rollout
-        ppo.atualizar(buffer, proximo_valor)
+    recompensa_para_analise.append((ppo.recompensa_episodio, passos_totais))
+    recompensa_por_passo.append(ppo.recompensa_episodio / passos_totais)
+    print(f'\n\n##### Recompensa do episódio: {ppo.recompensa_episodio:.3f}')
+    print(f'Todas as recompensas: {recompensa_para_analise}')
+    print(f'Recompensa por passo: {recompensa_por_passo}\n\n')
+    ppo.recompensa_episodio = 0
+    passos_totais = 0
+
+    if buffer.size > 1: # Caso não atinja o número de passos de rollout. 1 para não dar problema com os desvios padrões vantagens.std(unbiased=False)
+        ppo.atualizar(buffer, proximo_valor) # Esta atualização ocorre no final. Não precisa de pausa
         passos_coletados = 0
+
+    print(f'\n\n##### Recompensa do episódio: {ppo.recompensa_episodio:.3f}')
+    print(f'Todas as recompensas: {recompensa_para_analise}')
+    print(f'Recompensa por passo: {recompensa_por_passo}\n\n')
+
+ambiente.conn.krpc.paused = True
