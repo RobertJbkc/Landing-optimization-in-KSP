@@ -2,6 +2,14 @@
 Arquivo destinado a conduzir o treinamento do agente de DRL via PPO. A PPO funciona em episódios.
 """
 
+
+
+# ##### Recompensa do episódio: -310.930
+# Todas as recompensas: [(-1656.970615386963, 865), (-2073.1646118164062, 715), (-2083.4071617126465, 690), (-2114.2611961364746, 616), (-2218.0948333740234, 653), (-2377.5377464294434, 773), (-1852.3420677185059, 618), (-1684.6448097229004, 550)]
+# Recompensa por passo: [-1.915572965765275, -2.8995309256173516, -3.019430669148763, -3.432242201520251, -3.3967761613691017, -3.0757280031428764, -2.99731726168043, -3.062990563132546]
+
+
+
 import torch
 import torch.nn as nn
 from rocket_lander.environment.ksp_environment import KSPEnvironment
@@ -10,13 +18,13 @@ from rocket_lander.memory.rollout_buffer import RolloutBuffer
 from rocket_lander.algorithms.ppo import PPO
 
 
-NUM_EPISODIOS = 50 # 40
-FREQUENCIA_ATUALIZACAO = 10 # Hz
+NUM_EPISODIOS = 70
+FREQUENCIA_ATUALIZACAO = 10 # Hz Menor frequência torna os dados mais distinguíveis, o que é bom. < 15 Hz
 NUM_PASSOS_ROLLOUT = 64 # ou 128 # Ponto pegos antes de uma atualização
 
 ambiente = KSPEnvironment(frequencia=FREQUENCIA_ATUALIZACAO)
-rede = ActorCriticNetwork(input_dim=6, camadas_ocultas=[32, 64, 64, 32], output_dim=16, camadas_cabecas=[16, 32, 16, 8], num_actions=1, ativacao=nn.Tanh, ativacao_saida=nn.Tanh)
-ppo = PPO(rede, lr=[1e-4, 1e-4, 1e-2], gamma=0.99, lambda_gae=0.90, epsilon_clip=0.2, coef_entropia=0.05, coef_valor=1, epocas=15, batch_size=16)
+rede = ActorCriticNetwork(input_dim=7, camadas_ocultas=[32, 64, 128, 64, 32], output_dim=16, camadas_cabecas=[16, 32, 16, 8], num_actions=1, ativacao=nn.Tanh, ativacao_saida=nn.Tanh)
+ppo = PPO(rede, lr=[1e-4, 1e-3, 1e-3], gamma=0.99, lambda_gae=0.90, epsilon_clip=0.7, coef_entropia=0.10, coef_valor=1, epocas=25, batch_size=16)
 buffer = RolloutBuffer()
 
 recompensa_para_analise = []
@@ -51,6 +59,7 @@ for i in range(NUM_EPISODIOS):
             ppo.atualizar(buffer, proximo_valor)
             ambiente.conn.krpc.paused = False
             passos_coletados = 0
+        print('Episódio:', i)
 
     recompensa_para_analise.append((ppo.recompensa_episodio, passos_totais))
     recompensa_por_passo.append(ppo.recompensa_episodio / passos_totais)

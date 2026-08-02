@@ -18,10 +18,10 @@ class ActorCriticNetwork(nn.Module):
         
         self.backbone = self.build_mlp(input_dim=input_dim, camadas_ocultas=camadas_ocultas, output_dim=output_dim, ativacao=ativacao)
 
-        self.actor = self.build_mlp(input_dim=output_dim, camadas_ocultas=camadas_cabecas, output_dim=num_actions, ativacao=ativacao, ativacao_saida=ativacao_saida)
+        self.actor = self.build_mlp(input_dim=output_dim, camadas_ocultas=camadas_cabecas, output_dim=num_actions, ativacao=nn.Tanh, ativacao_saida=nn.Tanh)
         self.critic = self.build_mlp(input_dim=output_dim, camadas_ocultas=camadas_cabecas, output_dim=num_actions, ativacao=ativacao, ativacao_saida=None)
 
-        self.log_std = nn.Parameter(torch.tensor([-3.2])) # A exponencial desse parâmetro é o sigma da distribuição. É um parâmetro treinável/que o modelo aprende.
+        self.log_std = nn.Parameter(torch.tensor([-3.0])) # A exponencial desse parâmetro é o sigma da distribuição. É um parâmetro treinável/que o modelo aprende.
 
 
     @staticmethod

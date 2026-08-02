@@ -45,8 +45,9 @@ class KSPEnvironment():
         self._envia_acao(action=action)
         sleep(self.dt)
         novo_estado = self._get_state()
-        recompensa = torch.tensor(self._calc_recompensa(novo_estado, buffer))
-        done, _ = self._is_done()
+        recompensa, situacao = self._calc_recompensa(novo_estado, buffer)
+        recompensa = torch.tensor(recompensa)
+        done = situacao[0]
 
         return novo_estado, recompensa, done
 
@@ -87,6 +88,7 @@ class KSPEnvironment():
         # Cálculo do TWR - Thrust to Weight Ratio
         massa_twr = self.nave.mass
         twr_max = (self.nave.max_thrust / (massa_twr * abs(self.nave.orbit.body.surface_gravity))) / self.twr_i if massa_twr > 0 else 0
+        throttle = self.control.throttle
 
         estado = (
             altitude,
@@ -94,7 +96,8 @@ class KSPEnvironment():
             velocidade_horizontal,
             propelente,
             gravidade,
-            twr_max
+            twr_max,
+            throttle,
         )
 
         # print('Estado antes de tensor:', estado)
@@ -128,50 +131,46 @@ class KSPEnvironment():
         # estado[3] = propelente
         # estado[4] = gravidade
         # estado[5] = twr
+        # estado[6] = throttle
         
 
-        # k = (estado[0]) + 0.01
-        # vx = abs(velocidade[0]) / self.velocidade_i[0]
-        # vy = abs(velocidade[1]) / self.velocidade_i[1]
-        # vz = abs(velocidade[2]) / self.velocidade_i[2]
-
-        # penalidade_movimento = - (1/100) * ((vx / k) + (vy / k) + (vz / k))
-
-        # penalidade_movimento_2 = - 1 * abs(estado[2]) - 1 * abs(estado[1])
-
-        # altura_passada = buffer.buffer['estados'][0][-1] if buffer.size > 0 else altitude # Ou -1 0
-        # progresso = (1/10) * (altura_passada - estado[0])
-
-
-        # print(f'Rec:: Pen mov: {penalidade_movimento}, Pen mov 2: {penalidade_movimento_2}, prog: {progresso}')
-        # recompensa = 0
-        # recompensa += penalidade_movimento + penalidade_movimento + progresso
-
-
-        w1, w2, w3 = 1, 3, 0.4
+        w1, w2, w4 = 0.5, 1, 1
+        if estado[0] < 200:
+            w2 *= abs(estado[1])
         altura_passada = buffer.buffer['estados'][-1][0] if buffer.size > 0 else altitude / self.altitude_i # Ou -1 0
-        penalidade_movimento = - w1 * abs(estado[2]) - w2 * abs(estado[1]) + w3 * (altura_passada - estado[0])
+        penalidade_movimento = - w1 * abs(estado[2]) - w2 * abs(estado[1]) -  w4 * (2.2**estado[0])
 
-        # print(f'BufBuf: {buffer.buffer['estados'][-1][0] if buffer.size > 0 else altitude / self.altitude_i}, Est2: {estado[2]}, Est1: {estado[1]}')
 
         recompensa = 0
         recompensa += penalidade_movimento
 
+        self.penalidade_subida = 15
+        self.bonus_propelente = 10
+        self.bonus_pouso = 30
+        self.penalidade = -30
 
-
-        self.bonus_pouso = 20
-        self.penalidade = -20
+        subida = 1
+        if estado[0] < subida:
+            subida = estado[0]
 
         # Com o método de recompensas variáveis devo verificar se foi combustível ou não
         situacao = self._is_done()
+        # if (altura_passada - estado[0]) * self.altitude_i < -5:
+        #     situacao = [True, 'Subida']
         if situacao[0]:
+            recompensa += self.bonus_propelente * abs(estado[3]) # Estdo[3] --> Propelente, já noramlizado
+            # if situacao[1] == 'Subida':
+            #     recompensa += self.penalidade_subida
             if situacao[1]:
                 recompensa += self.bonus_pouso
             else:
+                if estado[0] > subida:
+                    recompensa -= self.penalidade_subida
                 recompensa += self.penalidade * (abs(estado[1]))
+                recompensa -= self.bonus_propelente * abs(1 - estado[3])
                 print(f'Penalidade: {self.penalidade * (abs(estado[1]))}')
 
-        return recompensa
+        return recompensa, situacao
 
     def _envia_acao(self, action: torch.Tensor) -> None:
         """Envia as ações para o jogo"""
@@ -189,10 +188,10 @@ class KSPEnvironment():
         altitude = self.flight.surface_altitude
         velocidade_vertical = self.flight.vertical_speed
 
-        if abs(velocidade_vertical) < 3 and altitude < 10:
+        if abs(velocidade_vertical) < 10 and altitude < 10:
             return True, True
 
-        if abs(velocidade_vertical) > 20 and altitude < 5:
+        if abs(velocidade_vertical) > 20 and altitude < 10:
             return True, False
         
         if self.nave.situation == 'landed':
@@ -201,7 +200,7 @@ class KSPEnvironment():
         if self.nave.situation == 'splashed':
             return True, False
 
-        if self.nave.resources.amount('LiquidFuel') <= 0:
+        if round(self.nave.resources.amount('LiquidFuel')) <= 0:
             return True, False
 
         return False, False
