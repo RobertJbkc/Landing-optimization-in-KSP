@@ -65,7 +65,7 @@ for i in range(NUM_EPISODIOS):
     recompensa_por_passo.append(ppo.recompensa_episodio / passos_totais)
     print(f'\n\n##### Recompensa do episódio: {ppo.recompensa_episodio:.3f}')
     print(f'Todas as recompensas: {recompensa_para_analise}')
-    print(f'Recompensa por passo: {recompensa_por_passo}\n\n')
+    # print(f'Recompensa por passo: {recompensa_por_passo}\n\n')
     ppo.recompensa_episodio = 0
     passos_totais = 0
 
@@ -75,6 +75,6 @@ for i in range(NUM_EPISODIOS):
 
     print(f'\n\n##### Recompensa do episódio: {ppo.recompensa_episodio:.3f}')
     print(f'Todas as recompensas: {recompensa_para_analise}')
-    print(f'Recompensa por passo: {recompensa_por_passo}\n\n')
+    # print(f'Recompensa por passo: {recompensa_por_passo}\n\n')
 
 ambiente.conn.krpc.paused = True

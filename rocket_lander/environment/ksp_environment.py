@@ -76,6 +76,8 @@ class KSPEnvironment():
             self.twr_i = self.nave.max_thrust / (self.nave.mass * abs(self.nave.orbit.body.surface_gravity)) if self.nave.mass > 0 else 0
             # Talvez trocar para available_thrust ou max_thrust
             ## Explodir é gastar todo o combistível!...
+
+            self.subida = 1
             
             self.inicio = False # Faz com que os valores iniciais seja guardados
 
@@ -116,6 +118,7 @@ class KSPEnvironment():
 
         self.flight = self.nave.flight(self.nave.orbit.body.reference_frame)
         altitude = self.flight.surface_altitude
+        velocidade_vertical = self.flight.vertical_speed
         velocidade = self.flight.velocity # Um vetor
         massa = self.nave.mass
         gravity = self.nave.orbit.body.surface_gravity
@@ -132,43 +135,85 @@ class KSPEnvironment():
         # estado[4] = gravidade
         # estado[5] = twr
         # estado[6] = throttle
+
+
+        ### Implementação via potencial ###
+        w_altitude = 1
+        w_velocidade_vertical = 1
+
+        # altitude_passada_i = buffer.buffer['estados'][-1][-2] if buffer.size > 1 else altitude / self.altitude_i
+        # altitude_passada_f = buffer.buffer['estados'][-1][-1] if buffer.size > 1 else altitude / self.altitude_i
+        # potencial_altitude = w_altitude * (altitude_passada_f - altitude_passada_i) # Normalmente positivo
+
+        # velocidade_passada_i = buffer.buffer['estados'][-1][-2] if buffer.size > 1 else velocidade_vertical / self.velocidade_vertical_i
+        # velocidade_passada_f = buffer.buffer['estados'][-1][-1] if buffer.size > 1 else velocidade_vertical / self.velocidade_vertical_i
+        # potencial_velocidade = w_velocidade_vertical * abs(velocidade_passada_f - velocidade_passada_i)
+
+
+        altitude_passada_i = buffer.buffer['estados'][-2][0] if buffer.size > 1 else altitude / self.altitude_i
+        altitude_passada_f = buffer.buffer['estados'][-1][0] if buffer.size > 1 else altitude / self.altitude_i
+        potencial_altitude = -w_altitude * (altitude_passada_f - altitude_passada_i) # Normalmente positivo
+
+        # velocidade_passada_i = buffer.buffer['estados'][-2][1] if buffer.size > 1 else velocidade_vertical / self.velocidade_vertical_i
+        # velocidade_passada_f = buffer.buffer['estados'][-1][1] if buffer.size > 1 else velocidade_vertical / self.velocidade_vertical_i
+        # potencial_velocidade = w_velocidade_vertical * abs(velocidade_passada_f - velocidade_passada_i)
         
 
-        w1, w2, w4 = 0.5, 1, 1
-        if estado[0] < 200:
-            w2 *= abs(estado[1])
-        altura_passada = buffer.buffer['estados'][-1][0] if buffer.size > 0 else altitude / self.altitude_i # Ou -1 0
-        penalidade_movimento = - w1 * abs(estado[2]) - w2 * abs(estado[1]) -  w4 * (2.2**estado[0])
-
+        # buffer.buffer['estados'][-1] É o último tensor de estado
+        # buffer.buffer['estados'][-1][1] É o último valor de velocidade vertical
+        # buffer.buffer['estados'][-2][1] É o penúltimo valor de velocidade vertical
 
         recompensa = 0
-        recompensa += penalidade_movimento
+        recompensa -= 0.5 * abs(estado[2])
+        recompensa = potencial_altitude
+        recompensa -= w_velocidade_vertical * abs(estado[1])
+        ### Implementação via potencial ###
+        
 
-        self.penalidade_subida = 15
+
+
+
+        # ### Implementação via não potencial ###
+        # w1 = 0.5
+        # w2 = 1
+        # w3 = 1
+        
+        # penalidade_movimento = - w1 * abs(estado[2]) - w2 * abs(estado[1]) - w3 * (2.2**estado[0])
+
+        # recompensa = 0
+        # recompensa += penalidade_movimento
+        # ### Implementação via não potencial ###
+
+
+
+
+
+
+
+        self.penalidade_subida = 150
         self.bonus_propelente = 10
-        self.bonus_pouso = 30
-        self.penalidade = -30
+        self.bonus_pouso = 165
+        self.penalidade = -165
+        # Se ele desce muito edvagar acaba perdendo!!! mesmo que seja bom 
 
-        subida = 1
-        if estado[0] < subida:
-            subida = estado[0]
+
+        if estado[0] < self.subida:
+            self.subida = estado[0]
 
         # Com o método de recompensas variáveis devo verificar se foi combustível ou não
         situacao = self._is_done()
         # if (altura_passada - estado[0]) * self.altitude_i < -5:
         #     situacao = [True, 'Subida']
         if situacao[0]:
-            recompensa += self.bonus_propelente * abs(estado[3]) # Estdo[3] --> Propelente, já noramlizado
-            # if situacao[1] == 'Subida':
-            #     recompensa += self.penalidade_subida
             if situacao[1]:
                 recompensa += self.bonus_pouso
+                recompensa += self.bonus_propelente * abs(estado[3])
             else:
-                if estado[0] > subida:
+                if estado[0] > self.subida:
+                    print('### Penalidade de subida')
                     recompensa -= self.penalidade_subida
+
                 recompensa += self.penalidade * (abs(estado[1]))
-                recompensa -= self.bonus_propelente * abs(1 - estado[3])
-                print(f'Penalidade: {self.penalidade * (abs(estado[1]))}')
 
         return recompensa, situacao
 
@@ -191,8 +236,8 @@ class KSPEnvironment():
         if abs(velocidade_vertical) < 10 and altitude < 10:
             return True, True
 
-        if abs(velocidade_vertical) > 20 and altitude < 10:
-            return True, False
+        # if abs(velocidade_vertical) > 20 and altitude < 10:
+        #     return True, False
         
         if self.nave.situation == 'landed':
             return True, True
